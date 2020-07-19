@@ -1,0 +1,94 @@
+---
+title: "Machine Learning Project"
+author: "Nicholas Cemalovic"
+date: "7/18/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+# Goal:
+## Build and cross-validate a machine learning algorithm to predict the class of a dumbell curl movement from biomotion sensor data collected from Velloso et al. 2013. The workflow, accruacy and error analysis, and test prediction is below:
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+```
+
+## Loading relevant libraries
+```{r packages, echo=FALSE}
+library(ggplot2)
+library(readr)
+library(e1071)
+library(caret)
+library(rpart)
+library(rattle)
+library(randomForest)
+set.seed(1)
+
+testing <- read_csv("Desktop/pml-testing.csv")
+training <- read_csv("Desktop/pml-training.csv")
+```
+
+## Data Cleaning:
+### Removing unnessecary predictors like name and time stamp (the first 7 columns) along with filtering out all NA and zero variance predictors from both the training and testing data
+```{r }
+training <- training[,8:length(colnames(training))]
+testing <- testing[,8:length(colnames(testing))]
+
+training <- training[,colSums(is.na(training)) == 0]
+testing <- testing[,colSums(is.na(testing)) == 0]
+
+no_var <- nearZeroVar(training, saveMetrics = TRUE)
+if (sum(no_var$no_var) > 0) {
+  training <- training[,no_var$no_var == FALSE]
+}
+```
+
+## Data Partition:
+### Splitting the cleaned training data into a 70:30 new split to model and validate
+```{r split, echo = FALSE}
+training_intermediate <- createDataPartition(training$classe, 
+                                    p = 0.70,
+                                    list = FALSE)
+training_official <- training[training_intermediate, ]
+training_cross_valid <- training[-training_intermediate, ]
+```
+
+## Model Development: Random Forest with 5-fold cross validation
+### Because it would be statistically taxing to run regressions and analyses of the 152 possible covariates, I've chosen a Random Forest model to automatically identify significant covariates, with reduced variance by averaging the outcome of each decision tree. 
+```{r modeling}
+model <- train(classe ~ ., 
+               data = training_official,
+               method = "rf",
+               trControl = trainControl(method = "cv", 5),
+               ntree = 251)
+model
+```
+### The seleted optimal model (mtry 27) has an accuracy of ~99.1% from the training_official data (a major subset of the original training data) The next step is to cross validate this model with the smaller subset from the training set, now named training_cross_valid.
+
+## Model Cross-Validation
+```{r validation}
+validation_prediction <- predict(model, training_cross_valid)
+confusionMatrix(factor(training_cross_valid$classe), factor(validation_prediction))
+```
+### Based off of the Confusion Matrix, the model had high success is prediction, quantified with an overall accuracy of ~99.2%. While this is rare that out of sample  accuracy is higher than training set accuracy, it is worth nothign that precision and accuracy metrics varied slightly by class. This analysis shows little out of sample error and supports moving to true prediciton on the testing dataset.
+
+## Testing the Model
+```{r test}
+test_results <- predict(model, newdata = testing)
+test_results
+```
+## The 20 observances in the official test data were predicted to the 5 levels above, with 100% accuracy according to the coursera quiz
+
+# Conclusion
+## The Random Forest model with 5 folds was able to predict with an in-sample accuracy of ~99.1% and an out-of-sample validation accuracy of ~99.2%. When introduced to the test set, the model was able to predict all 20 observances with total accuracy. This model was likely most effective due to proper cleaning of insignificant covariates, the inclusion of all possible covariates (classe ~ .), and little overfitting. A decision tree averaged from all those created by randomForrests is shown in the appendix along with a reference to the data collected.
+
+# Appendix
+## Decision Tree of the Random Forest Model
+```{r tree, echo = TRUE}
+tree_graph <- rpart(classe ~ ., data= training_official, method="class")
+fancyRpartPlot(tree_graph)
+```
+# Reference:
+## Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human ’13). Stuttgart, Germany: ACM SIGCHI, 2013.
+
+
